@@ -175,10 +175,10 @@ class InferenceEngineV2:
         end_prepare_batch = time.time()
 
         # Model implementation will pick up in the forward.
-        start_put = time.time()
+        start_fwd = time.time()
         logits = self._model.forward(self._batch)
         torch.cuda.synchronize()
-        end_put = time.time()
+        end_fwd = time.time()
 
         # We return one set of logits per sequence in the batch (saves cost on unembedding)
         assert logits.shape[0] == self._batch.current_sequences
@@ -195,15 +195,16 @@ class InferenceEngineV2:
             "pre_loop": end_pre_loop - start_pre_loop,
             "finalize": end_finalize - start_finalize,
             "prepare_batch": end_prepare_batch - start_prepare_batch,
-            "put": end_put - start_put,
+            "fwd": end_fwd - start_fwd,
             "post_loop": end_post_loop - start_post_loop,
+            "put": end_post_loop - start_can_schedule,
             "forward_size": sum([tokens.numel() for tokens in batch_tokens]),
         }
         self.breakdown_times.append(prof_time_dict)
         SAVE_INTERVAL = 2000
         if len(self.breakdown_times) > SAVE_INTERVAL:
             import pickle
-            fname = f"ds_dump_{self.profile_dump_count}_opt{1 if self.use_opt else 0}.pkl"
+            fname = f"ds_dump_{self.profile_dump_count}_opt{1 if self.enable_opt else 0}.pkl"
             pickle.dump(self.breakdown_times, open(fname, "wb"))
             print(f"Dumped profile data to {fname}")
             self.breakdown_times = []
