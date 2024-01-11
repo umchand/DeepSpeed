@@ -76,7 +76,7 @@ class RaggedBatchWrapper:
     then accessing the Nth cache will require accessing the Nth block id
     """
 
-    def __init__(self, config: DSStateManagerConfig) -> None:
+    def __init__(self, config: DSStateManagerConfig, enable_opt=False) -> None:
         """
         Convenience wrapper around the data structures used to represent a ragged
         batch for inference. Only a single `RaggedBatchWrapper` should be used per
@@ -110,17 +110,27 @@ class RaggedBatchWrapper:
         self._inflight_seq_descriptors_shadow = host_alloc(self._inflight_seq_descriptors)
         self._kv_ptrs_shadow = host_alloc(self._kv_ptrs)
 
+        self._current_tokens = 0
+        self._current_sequences = 0
+
         # Default behavior should be no padding
         self._is_padded = False
+
+        self._enable_opt = enable_opt
 
     def clear(self) -> None:
         """
         Clear the ragged batch. This will reset the number of tokens and sequences to 0.
         """
-        self._batch_metadata_storage_shadow[0] = 0
-        self._batch_metadata_storage_shadow[1] = 0
+        if self._enable_opt:
+            self._current_tokens = 0
+            self._current_sequences = 0
+        else:
+            self._batch_metadata_storage_shadow[0] = 0
+            self._batch_metadata_storage_shadow[1] = 0
 
-    def insert_sequence(self, seq_descriptor: DSSequenceDescriptor, tokens: torch.Tensor, do_checks=True) -> None:
+
+    def insert_sequence(self, seq_descriptor: DSSequenceDescriptor, tokens: torch.Tensor, inflight_seq_descriptors_shadow_buf, do_checks=True) -> None:
         """
         Incrementally insert a sequence into the ragged batch. This will update the
         metadata for the ragged batch and the sequence.
@@ -140,18 +150,26 @@ class RaggedBatchWrapper:
         if do_checks and self.current_tokens + seq_tokens > self._config.max_ragged_batch_size:
             raise RuntimeError(f"Ragged batch is full due to capacity limit: {self._config.max_ragged_batch_size})")
 
-        self._input_ids_shadow[self.current_tokens:self.current_tokens + seq_tokens].copy_(tokens)
-        self._token_to_seq_storage_shadow[self.current_tokens:self.current_tokens + seq_tokens].fill_(
-            self.current_sequences)
+        if self._enable_opt:
+            inflight_seq_descriptors_shadow_buf.append(self.current_tokens)
+            inflight_seq_descriptors_shadow_buf.append(seq_tokens)
+            inflight_seq_descriptors_shadow_buf.append(seq_descriptor.seen_tokens)
+            inflight_seq_descriptors_shadow_buf.append(0) # alignment
+            self._current_tokens += seq_tokens
+            self._current_sequences += 1
+        else:
+            self._input_ids_shadow[self.current_tokens:self.current_tokens + seq_tokens].copy_(tokens)
+            self._token_to_seq_storage_shadow[self.current_tokens:self.current_tokens + seq_tokens].fill_(
+                self.current_sequences)
 
-        self._inflight_seq_descriptors_shadow[self.current_sequences][0] = self.current_tokens
-        self._inflight_seq_descriptors_shadow[self.current_sequences][1] = seq_tokens
-        self._inflight_seq_descriptors_shadow[self.current_sequences][2] = seq_descriptor.seen_tokens
+            self._inflight_seq_descriptors_shadow[self.current_sequences][0] = self.current_tokens
+            self._inflight_seq_descriptors_shadow[self.current_sequences][1] = seq_tokens
+            self._inflight_seq_descriptors_shadow[self.current_sequences][2] = seq_descriptor.seen_tokens
 
-        self._kv_ptrs_shadow[self.current_sequences] = seq_descriptor.kv_blocks_ptr
+            self._kv_ptrs_shadow[self.current_sequences] = seq_descriptor.kv_blocks_ptr
 
-        self._batch_metadata_storage_shadow[0] += seq_tokens
-        self._batch_metadata_storage_shadow[1] += 1
+            self._batch_metadata_storage_shadow[0] += seq_tokens
+            self._batch_metadata_storage_shadow[1] += 1
 
     @property
     def tensor_toks(self) -> torch.Tensor:
@@ -256,7 +274,10 @@ class RaggedBatchWrapper:
         The number of tokens in the in-flight ragged batch. This will not trigger
         synchronization with the device.
         """
-        return self._batch_metadata_storage_shadow[0].item()
+        if self._enable_opt:
+            return self._current_tokens
+        else:
+            return self._batch_metadata_storage_shadow[0].item()
 
     @property
     def current_sequences(self) -> int:
@@ -264,4 +285,7 @@ class RaggedBatchWrapper:
         The number of sequences in the in-flight ragged batch. This will not trigger
         synchronization with the device.
         """
-        return self._batch_metadata_storage_shadow[1].item()
+        if self._enable_opt:
+            return self._current_sequences
+        else:
+            return self._batch_metadata_storage_shadow[1].item()
