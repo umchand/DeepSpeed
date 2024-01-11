@@ -142,7 +142,7 @@ class InferenceEngineV2:
         for i, (uid, tokens) in enumerate(zip(batch_uids, batch_tokens)):
 
             host_seq_desc = self._state_manager.get_or_create_sequence(uid)
-            self._model.maybe_allocate_kv(host_seq_desc, tokens.numel())
+            self._model.maybe_allocate_kv(host_seq_desc, tokens.numel(), self.enable_opt)
             host_seq_desc.pre_forward(tokens.numel())
 
             # We can disable checks since we already validated schedulability.

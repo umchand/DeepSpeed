@@ -353,14 +353,22 @@ class DSTransformerModelBase(DSInferenceModelBase):
 
         return token_capacity, torch.tensor([max_new_blocks])
 
-    def maybe_allocate_kv(self, sequence: DSSequenceDescriptor, n_new_tokens: int) -> None:
+    def maybe_allocate_kv(self, sequence: DSSequenceDescriptor, n_new_tokens: int, enable_opt=False) -> None:
         """
         See ``DSInferenceModelBase.maybe_allocate_kv`` for documentation.
 
         This method assumes an autoregressive dense attention pattern. Override this method
         if this does not match the model's attention pattern.
         """
-        _, n_needed_blocks = self.get_kv_requirements(sequence, n_new_tokens, self.state_manager.free_blocks)
+        if enable_opt:
+            import sched_util
+            _, n_needed_blocks = sched_util.get_kv_requirements(sequence.seen_tokens,
+                                                                sequence.cur_allocated_blocks,
+                                                                n_new_tokens,
+                                                                self.state_manager.free_blocks,
+                                                                self.attn.kv_block_size)
+        else:
+            _, n_needed_blocks = self.get_kv_requirements(sequence, n_new_tokens, self.state_manager.free_blocks)
 
         if n_needed_blocks > 0:
             new_blocks = self.state_manager.allocate_blocks(n_needed_blocks)
