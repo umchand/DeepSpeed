@@ -92,7 +92,23 @@ def load_hp_checkpoint_state(self, folder, tp_rank, tp_world_size):
             tp_hp_slice = torch.cat(sub_params_tp_slice, dim=chunk_dim)
         else:
             # this performs the opposite of cat when merging TP slices
-            tp_hp_slice = full_hp_param.chunk(tp_world_size, chunk_dim)[tp_rank]
+            if "mlp.fc1.weight" in folder:
+                # [expert, act+swiglu_gate, hidden2, hidden1]
+                tp_hp_slice = full_hp_param.view(2, 2, -1, 4096).chunk(tp_world_size, 2)[tp_rank]
+            elif "mlp.fc2.weight" in folder:
+                tp_hp_slice = full_hp_param.view(2, -1, 4096).chunk(tp_world_size, 1)[tp_rank]
+            elif "attn.Wqkv.weight" in folder:
+                # [(n_head+n_head_kv*2)*head_dim, hidden]
+                n_head = 32
+                n_head_kv = 8
+                head_dim = 128
+                hidden = 4096
+                wq = full_hp_param[:n_head * head_dim].chunk(tp_world_size, 0)[tp_rank]
+                wk = full_hp_param[n_head * head_dim:(n_head + n_head_kv) * head_dim].chunk(tp_world_size, 0)[tp_rank]
+                wv = full_hp_param[(n_head + n_head_kv) * head_dim:].chunk(tp_world_size, 0)[tp_rank]
+                tp_hp_slice = torch.cat([wq, wk, wv], dim=0)
+            else:
+                tp_hp_slice = full_hp_param.chunk(tp_world_size, chunk_dim)[tp_rank]
 
         tp_hp_slice = tp_hp_slice.flatten()
 
