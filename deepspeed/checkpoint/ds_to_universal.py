@@ -308,8 +308,8 @@ def _save_optimizer_state(args, ds_checkpoint):
 
 def _check_for_required_state(ds_checkpoint):
     universal_checkpoint_info = ds_checkpoint.get_checkpoint_info(UNIVERSAL_CHECKPOINT_INFO)
-    assert universal_checkpoint_info is not None, f'Required {UNIVERSAL_CHECKPOINT_INFO} state is missing in checkpoint. Verify that client creates this state.'
-
+    return universal_checkpoint_info is not None
+    
 
 def main(args):
     print(f'Convert DeepSpeed Checkpoint to Universal Checkpoint')
@@ -317,7 +317,27 @@ def main(args):
     print(f'Converting DeepSpeed checkpoint in {args.input_folder} to Universal checkpoint in {args.output_folder}')
 
     ds_checkpoint = DeepSpeedCheckpoint(args.input_folder)
-    _check_for_required_state(ds_checkpoint)
+    has_required_state = _check_for_required_state(ds_checkpoint)
+
+    if not has_required_state:
+        vocab_size = 32064
+        padded_vocab_size = 32064
+        using_model_pipe = True
+        tensor_model_parallel_size = 1
+        untie_embeddings_and_output_weights = True
+
+        from phyagi.utils.universal_checkpoint import _universal_checkpoint_info
+        print(f'Required {UNIVERSAL_CHECKPOINT_INFO} state is missing in checkpoint. Verify that client creates this state.'
+               ' Continuing conversion assuming:'
+               f' vocab_size: {vocab_size}'
+               f' padded_vocab_size: {padded_vocab_size}'
+               f' using_model_pipe: {using_model_pipe}'
+               f' tensor_model_parallel_size: {tensor_model_parallel_size}'
+               f' untie_embeddings_and_output_weights: {untie_embeddings_and_output_weights}')
+        print(f'This works only conversion for PP/DP scaling. TP scaling will silently produce incorrect results.')
+
+        universal_checkpoint_info = _universal_checkpoint_info(vocab_size, padded_vocab_size, using_model_pipe, tensor_model_parallel_size, untie_embeddings_and_output_weights)
+        ds_checkpoint.global_state[UNIVERSAL_CHECKPOINT_INFO] = universal_checkpoint_info
 
     iteration = ds_checkpoint.get_iteration()
     #_create_latest_file(args.output_folder, iteration)
