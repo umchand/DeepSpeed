@@ -86,6 +86,16 @@ def load_hp_checkpoint_state(self, folder, tp_rank, tp_world_size):
         # (more details at PARAM_N_SUB_PARAMS definition)
         chunk_dim = ckpt_dict.get(CAT_DIM, 0)
         n_sub_params = ckpt_dict.get(PARAM_N_SUB_PARAMS, 1)
+
+        # get values from env var
+        num_experts = int(os.getenv("NUM_EXPERTS", 16))
+        hidden_size = int(os.getenv("HIDDEN_SIZE", 4096))
+        n_head = int(os.getenv("N_HEAD", 32))
+        n_head_kv = int(os.getenv("N_HEAD_KV", 8))
+        head_dim = int(os.getenv("HEAD_DIM", 128))
+
+        print(f"Converting param or optimizer states in {folder}. num_experts={num_experts} hidden_size={hidden_size} n_head={n_head} n_head_kv={n_head_kv} head_dim={head_dim}")
+
         if n_sub_params > 1:
             sub_params = full_hp_param.chunk(n_sub_params, dim=chunk_dim)
             sub_params_tp_slice = [p.chunk(tp_world_size, dim=chunk_dim)[tp_rank] for p in sub_params]
@@ -93,16 +103,14 @@ def load_hp_checkpoint_state(self, folder, tp_rank, tp_world_size):
         else:
             # this performs the opposite of cat when merging TP slices
             if "mlp.fc1.weight" in folder:
+                print(f"Reshaping mlp.fc1.weight to [{num_experts}, 2, -1, {hidden_size}] ([expert, act+swiglu_gate, hidden2, hidden1])")
                 # [expert, act+swiglu_gate, hidden2, hidden1]
-                tp_hp_slice = full_hp_param.view(2, 2, -1, 4096).chunk(tp_world_size, 2)[tp_rank]
+                tp_hp_slice = full_hp_param.view(num_experts, 2, -1, hidden_size).chunk(tp_world_size, 2)[tp_rank]
             elif "mlp.fc2.weight" in folder:
-                tp_hp_slice = full_hp_param.view(2, -1, 4096).chunk(tp_world_size, 1)[tp_rank]
+                print(f"Reshaping mlp.fc2.weight to [{num_experts}, -1, {hidden_size}] ([expert, hidden2, hidden1])")
+                tp_hp_slice = full_hp_param.view(num_experts, -1, hidden_size).chunk(tp_world_size, 1)[tp_rank]
             elif "attn.Wqkv.weight" in folder:
-                # [(n_head+n_head_kv*2)*head_dim, hidden]
-                n_head = 32
-                n_head_kv = 8
-                head_dim = 128
-                hidden = 4096
+                print(f"Reshaping attn.Wqkv.weight to [{(n_head+n_head_kv*2)*head_dim}, {hidden_size}] ([(n_head+n_head_kv*2)*head_dim, hidden])")
                 wq = full_hp_param[:n_head * head_dim].chunk(tp_world_size, 0)[tp_rank]
                 wk = full_hp_param[n_head * head_dim:(n_head + n_head_kv) * head_dim].chunk(tp_world_size, 0)[tp_rank]
                 wv = full_hp_param[(n_head + n_head_kv) * head_dim:].chunk(tp_world_size, 0)[tp_rank]
