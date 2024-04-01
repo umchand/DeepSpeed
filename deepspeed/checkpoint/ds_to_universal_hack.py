@@ -44,12 +44,12 @@ def parse_arguments():
     parser.add_argument('--input_folder', type=str, required=True, help='Input DeepSpeed Checkpoint folder')
     parser.add_argument('--output_folder', type=str, required=True, help='Output DeepSpeed checkpoint folder')
     parser.add_argument('--num_extract_workers',
-                        default=4,
+                        default=8,
                         type=int,
                         help='How many parallel processes to extract zero shards')
     parser.add_argument(
         '--num_merge_workers',
-        default=2,
+        default=4,
         type=int,
         help=
         'How many parallel processes to merge tp slices (more memory intensive, use much fewer than --num_extract_workers))'
@@ -249,25 +249,13 @@ def _do_parallel_work(do_work, work_chunks, num_workers):
     if num_workers > 1:
 
         future_list = []
-        from concurrent.futures import ThreadPoolExecutor
-        with ThreadPoolExecutor(max_workers=num_workers) as executor:
+        from concurrent.futures import ThreadPoolExecutor, ProcessPoolExecutor 
+        with ProcessPoolExecutor(max_workers=num_workers) as executor:
             for work in work_chunks:
                 future_list.append(executor.submit(do_work, work))
-            future = executor.submit(pow, 323, 1235)
-            print(future.result())
-
-        results = []
-        for f in tqdm.tqdm(future_list):
-            results.append(f.result())
-
-        # pool = multiprocessing.Pool(num_workers)
-        # results = []
-        # for batch in tqdm.tqdm(work_chunks):
-        #     res = pool.map(do_work, batch)
-        #     results.extend(res)
-        # results = pool.map(do_work, work_chunks)
-        # pool.close()
-        # pool.join()
+            results = []
+            for f in tqdm.tqdm(future_list):
+                results.append(f.result())
     else:
         # No parallel pass for unit testing
         # We can't create child processes in tests
@@ -282,8 +270,8 @@ def _extract_zero_shard_files(args, ds_checkpoint, temp_dir):
     _3d_range_list = list(
         itertools.product(range(ds_checkpoint.pp_degree), range(ds_checkpoint.tp_degree),
                           range(ds_checkpoint.dp_degree)))
-    #pprint(f'{_3d_range_list=}')
-    work_chunks = list(_get_chunks(_3d_range_list, args.num_extract_workers))
+    # pprint(f'{_3d_range_list=}')
+    # work_chunks = list(_get_chunks(_3d_range_list, args.num_extract_workers))
     #pprint(f'{work_chunks=}')
 
     # extract_zero_shards(temp_dir, ds_checkpoint, _3d_range_list[0])
@@ -297,7 +285,8 @@ def _merge_tp_slice_files(args, ds_checkpoint, slice_shapes, temp_dir):
     #pprint(work_chunks)
     zero_output_folder = os.path.join(args.output_folder, "zero")
     do_work = partial(merge_tp_slices, ds_checkpoint, zero_output_folder, temp_dir, ds_checkpoint.tp_degree)
-    unmatched_patterns_lists = _do_parallel_work(do_work, slice_shapes, args.num_merge_workers)
+    # unmatched_patterns_lists = _do_parallel_work(do_work, work_chunks, args.num_merge_workers)
+    unmatched_patterns_lists = _do_parallel_work(do_work, list(slice_shapes.items()), args.num_merge_workers)
 
     # verify that all patterns were used
     # if a pattern was not used by any of the workers, then it was not used at all -> assert/alert
