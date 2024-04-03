@@ -111,10 +111,17 @@ def load_hp_checkpoint_state(self, folder, tp_rank, tp_world_size):
                 tp_hp_slice = full_hp_param.view(num_experts, -1, hidden_size).chunk(tp_world_size, 1)[tp_rank]
             elif "attn.Wqkv.weight" in folder:
                 print(f"Reshaping attn.Wqkv.weight to [{(n_head+n_head_kv*2)*head_dim}, {hidden_size}] ([(n_head+n_head_kv*2)*head_dim, hidden])")
+                full_hp_param = full_hp_param.view((n_head+n_head_kv*2)*head_dim, hidden_size)
                 wq = full_hp_param[:n_head * head_dim].chunk(tp_world_size, 0)[tp_rank]
                 wk = full_hp_param[n_head * head_dim:(n_head + n_head_kv) * head_dim].chunk(tp_world_size, 0)[tp_rank]
                 wv = full_hp_param[(n_head + n_head_kv) * head_dim:].chunk(tp_world_size, 0)[tp_rank]
                 tp_hp_slice = torch.cat([wq, wk, wv], dim=0)
+            elif "attn.Wqkv.bias" in folder:
+                print(f"Reshaping attn.Wqkv.bias to [{(n_head+n_head_kv*2)*head_dim}]")
+                bq = full_hp_param[:n_head * head_dim].chunk(tp_world_size, 0)[tp_rank]
+                bk = full_hp_param[n_head * head_dim:(n_head + n_head_kv) * head_dim].chunk(tp_world_size, 0)[tp_rank]
+                bv = full_hp_param[(n_head + n_head_kv) * head_dim:].chunk(tp_world_size, 0)[tp_rank]
+                tp_hp_slice = torch.cat([bq, bk, bv], dim=0)
             else:
                 tp_hp_slice = full_hp_param.chunk(tp_world_size, chunk_dim)[tp_rank]
 
