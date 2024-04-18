@@ -5,6 +5,7 @@
 
 from collections import defaultdict
 from typing import Any, Dict, List, Set, Tuple, Union, cast
+import re
 
 import torch
 from torch import nn
@@ -180,3 +181,13 @@ def configure_moe_param_groups(model_parameters: List):
         else:
             # moe groups exist, nothing to do
             return model_parameters
+
+
+def remap_param_name(param_name, expert_index) -> str:
+    # layers.1.mlp.moe.deepspeed_moe.experts.deepspeed_experts.0.fc2_bias
+    pattern = r"deepspeed_experts\.(\d+)\."
+    match = re.search(pattern, param_name)
+
+    assert match is not None, f"Could not find expert index in {param_name}"
+
+    return re.sub(pattern, f"deepspeed_experts.{expert_index}.", param_name)

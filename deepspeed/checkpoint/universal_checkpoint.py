@@ -16,7 +16,8 @@ from .constants import (FP32_WEIGHT_KEY, PARAM, VOCAB_TENSOR, CAT_DIM, PARAM_N_S
 class SubparamShape:
     patterns: List[str]
     shape: Tuple[Union[Tuple[int], int]]
-    partition_dim: int
+    partition_dim: int = -1
+    expert_index: int = -1
 
 
 def load_hp_checkpoint_state(self, folder, tp_rank, tp_world_size):
@@ -92,6 +93,9 @@ def load_hp_checkpoint_state(self, folder, tp_rank, tp_world_size):
         chunk_dim = ckpt_dict.get(CAT_DIM, 0)
         n_sub_params = ckpt_dict.get(PARAM_N_SUB_PARAMS, 1)
         if sub_param_shape:
+            # expert_index = sub_param_shape.expert_index
+            # if expert_index < 0:
+            #     # TP
             partition_dim = sub_param_shape.partition_dim
             sub_dim_sizes = sub_param_shape.shape[partition_dim]
             if not isinstance(sub_dim_sizes, tuple):
@@ -104,11 +108,14 @@ def load_hp_checkpoint_state(self, folder, tp_rank, tp_world_size):
             merged_chunks = []
             for sub_dim_size in sub_dim_sizes:
                 sub_params_tp_slice = full_hp_param.narrow(partition_dim,
-                                                           offset, sub_dim_size).chunk(tp_world_size,
-                                                                                       dim=partition_dim)[tp_rank]
+                                                        offset, sub_dim_size).chunk(tp_world_size,
+                                                                                    dim=partition_dim)[tp_rank]
                 merged_chunks.append(sub_params_tp_slice)
                 offset += sub_dim_size
             tp_hp_slice = torch.cat(merged_chunks, dim=partition_dim)
+            # else:
+            #     # EP
+            #     raise NotImplementedError(f"{folder}")
 
         elif n_sub_params > 1:
             sub_params = full_hp_param.chunk(n_sub_params, dim=chunk_dim)

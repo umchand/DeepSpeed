@@ -19,11 +19,13 @@ class Experts(nn.Module):
         self.num_local_experts = num_local_experts
 
         # TODO: revisit allreduce for moe.gate...
-        for expert in self.deepspeed_experts:
+        for i, expert in enumerate(self.deepspeed_experts):
             # TODO: Create param groups to handle expert + data case (e.g. param.group = moe_group)
             for param in expert.parameters():
                 param.allreduce = False
                 param.group_name = expert_group_name
+                param.local_expert_index = i
+                param.num_local_experts = num_local_experts
 
     def forward(self, inputs: torch.Tensor) -> torch.Tensor:
         chunks = inputs.chunk(self.num_local_experts, dim=1)

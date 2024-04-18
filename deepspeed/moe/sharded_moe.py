@@ -353,8 +353,8 @@ def top2gating(logits: Tensor,
     denom_s = gates1_s + gates2_s
     # Avoid divide-by-zero
     denom_s = torch.clamp(denom_s, min=torch.finfo(denom_s.dtype).eps)
-    gates1_s /= denom_s
-    gates2_s /= denom_s
+    # gates1_s /= denom_s
+    # gates2_s /= denom_s
 
     # Calculate combine_weights and dispatch_mask
     gates1 = einsum("s,se->se", gates1_s, mask1_float)
