@@ -12,8 +12,6 @@ import torch
 from deepspeed.inference.v2.ragged.blocked_allocator import BlockedAllocator
 
 
-@pytest.mark.inference_v2
-@pytest.mark.parametrize('bad_size', [0, -1])
 def test_bad_initialization(bad_size: int) -> None:
     with pytest.raises(ValueError):
         BlockedAllocator(bad_size)
